@@ -6,38 +6,87 @@ import { SITE_TITLE } from '../consts';
 import { readdir } from 'fs/promises';
 import path from 'path';
 
-// Auto-scan public/images/ — just drop files in, no config needed.
+// Auto-scan public/images/ including subfolders.
+// Subfolder name becomes the album/filter label.
+//   public/images/hawaii/sunset.jpg      → album: "Hawaii"
+//   public/images/christmas-2025/        → album: "Christmas 2025"
+//   public/images/loose-photo.jpg        → album: "uncategorized"
+//
 // Naming convention for captions: use hyphens or underscores as word separators.
-//   hawaii-sunset.jpg        → caption: "Hawaii sunset"
-//   ron-vanessa-dinner.jpg   → caption: "Ron vanessa dinner"
-//   IMG_2663.jpg             → no caption (generic camera filenames ignored)
+//   hawaii-sunset.jpg   → caption: "Hawaii sunset"
+//   IMG_2663.jpg        → no caption (generic camera filenames ignored)
 
 const imageDir = path.join(process.cwd(), 'public/images');
 const validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.JPG', '.JPEG', '.PNG', '.WEBP'];
-
-// Filenames that look like camera defaults — no caption shown
 const genericPattern = /^(IMG|DSC|DCIM|photo|image|screenshot)[-_]?\d+$/i;
 
-let photos: { src: string; alt: string; caption: string }[] = [];
+interface Photo {
+	src: string;
+	alt: string;
+	caption: string;
+	album: string;
+}
+
+function makeCaption(filename: string): string {
+	const base = path.basename(filename, path.extname(filename));
+	const words = base.replace(/[-_]+/g, ' ').trim();
+	if (genericPattern.test(base)) return '';
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function makeLabel(folderName: string): string {
+	return folderName.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+let photos: Photo[] = [];
+let albums: string[] = [];
 
 try {
-	const files = await readdir(imageDir);
-	photos = files
-		.filter(f => validExtensions.includes(path.extname(f)))
-		.sort()
-		.map(f => {
-			const base = path.basename(f, path.extname(f));
-			const words = base.replace(/[-_]+/g, ' ').trim();
-			const isGeneric = genericPattern.test(base);
-			const caption = isGeneric ? '' : words.charAt(0).toUpperCase() + words.slice(1);
-			return {
-				src: `/images/${f}`,
-				alt: words,
-				caption,
-			};
-		});
+	const entries = await readdir(imageDir, { withFileTypes: true });
+
+	// Photos sitting directly in public/images/ (no subfolder)
+	const rootPhotos: Photo[] = entries
+		.filter(e => e.isFile() && validExtensions.includes(path.extname(e.name)))
+		.sort((a, b) => a.name.localeCompare(b.name))
+		.map(e => ({
+			src: `/images/${e.name}`,
+			alt: e.name.replace(/[-_]+/g, ' '),
+			caption: makeCaption(e.name),
+			album: 'uncategorized',
+		}));
+
+	// Photos inside subfolders
+	const subfolderPhotos: Photo[] = [];
+	const subfolders = entries
+		.filter(e => e.isDirectory())
+		.sort((a, b) => a.name.localeCompare(b.name));
+
+	for (const folder of subfolders) {
+		const folderPath = path.join(imageDir, folder.name);
+		const folderFiles = await readdir(folderPath);
+		const label = makeLabel(folder.name);
+		folderFiles
+			.filter(f => validExtensions.includes(path.extname(f)))
+			.sort()
+			.forEach(f => {
+				subfolderPhotos.push({
+					src: `/images/${folder.name}/${f}`,
+					alt: f.replace(/[-_]+/g, ' '),
+					caption: makeCaption(f),
+					album: label,
+				});
+			});
+	}
+
+	photos = [...subfolderPhotos, ...rootPhotos];
+
+	// Build album list for filter buttons (unique, sorted)
+	const albumSet = new Set(photos.map(p => p.album).filter(a => a !== 'uncategorized'));
+	albums = Array.from(albumSet).sort();
+	if (rootPhotos.length > 0) albums.push('uncategorized');
+
 } catch (e) {
-	// public/images/ doesn't exist yet — gallery will show empty state
+	// public/images/ doesn't exist yet
 }
 ---
 
@@ -45,18 +94,67 @@ try {
 <html lang="en">
 	<head>
 		<BaseHead title={`Gallery | ${SITE_TITLE}`} description="Photo gallery" />
-		<style>
-			.gallery-header {
+		<style is:global>
+			body {
+				background: #f4f6fb;
+				background-size: unset;
+			}
+			body > main {
+				padding-top: 0;
+			}
+
+			/* Page header */
+			.gallery-page-header {
+				background: #1a2744;
+				color: white;
+				text-align: center;
+				padding: 3em 1em 2.5em;
+				width: 100vw;
+				position: relative;
+				left: 50%;
+				transform: translateX(-50%);
 				margin-bottom: 2em;
 			}
-			.gallery-header h1 {
+			.gallery-page-header h1 {
 				font-size: 2.441em;
-				margin-bottom: 0.25em;
+				margin-bottom: 0.2em;
+				color: white;
 			}
-			.gallery-header p {
-				color: rgb(var(--gray));
+			.gallery-page-header p {
+				color: #a8b8d8;
 				margin: 0;
+				font-style: italic;
 			}
+
+			/* Filter buttons */
+			.filters {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 0.6em;
+				margin-bottom: 2em;
+			}
+			.filter-btn {
+				background: white;
+				border: 1px solid rgb(var(--gray-light));
+				border-radius: 20px;
+				padding: 0.4em 1.1em;
+				font-size: 0.85em;
+				cursor: pointer;
+				color: rgb(var(--gray-dark));
+				transition: all 0.15s ease;
+				font-family: inherit;
+			}
+			.filter-btn:hover {
+				border-color: #1a2744;
+				color: #1a2744;
+			}
+			.filter-btn.active {
+				background: #1a2744;
+				border-color: #1a2744;
+				color: white;
+			}
+
+			/* Gallery grid */
 			.gallery-grid {
 				display: grid;
 				grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -74,6 +172,9 @@ try {
 				transform: translateY(-4px);
 				box-shadow: 0 8px 24px rgba(var(--gray), 40%);
 			}
+			.photo-card.hidden {
+				display: none;
+			}
 			.photo-card img {
 				width: 100%;
 				height: 220px;
@@ -88,6 +189,14 @@ try {
 				color: rgb(var(--gray-dark));
 				background: white;
 			}
+			.photo-card .album-tag {
+				padding: 0.3em 1em 0.6em;
+				font-size: 0.75em;
+				color: rgb(var(--gray));
+				background: white;
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+			}
 			.empty-state {
 				grid-column: 1 / -1;
 				text-align: center;
@@ -100,7 +209,8 @@ try {
 				margin: 0;
 				font-size: 0.95em;
 			}
-			/* Lightbox overlay */
+
+			/* Lightbox */
 			.lightbox {
 				display: none;
 				position: fixed;
@@ -140,31 +250,49 @@ try {
 	<body>
 		<Header />
 		<main>
-			<div class="gallery-header">
+			<div class="gallery-page-header">
 				<h1>Gallery</h1>
 				<p>Photos worth keeping.</p>
 			</div>
 
-			<div class="gallery-grid">
-				{photos.length === 0 ? (
+			{photos.length === 0 ? (
+				<div class="gallery-grid">
 					<div class="empty-state">
-						<p>No photos yet — drop image files into <code>public/images/</code> and they'll appear here automatically.</p>
+						<p>No photos yet — drop image files into <code>public/images/</code> or subfolders inside it.</p>
 					</div>
-				) : (
-					photos.map((photo, i) => (
-						<div class="photo-card" data-index={i}>
-							<img
-								src={photo.src}
-								alt={photo.alt}
-								loading="lazy"
-								data-src={photo.src}
-								data-alt={photo.alt}
-							/>
-							{photo.caption && <div class="caption">{photo.caption}</div>}
+				</div>
+			) : (
+				<>
+					{albums.length > 1 && (
+						<div class="filters" id="filters">
+							<button class="filter-btn active" data-album="all">All</button>
+							{albums.map(album => (
+								<button class="filter-btn" data-album={album}>
+									{album === 'uncategorized' ? 'Uncategorized' : album}
+								</button>
+							))}
 						</div>
-					))
-				)}
-			</div>
+					)}
+
+					<div class="gallery-grid" id="gallery-grid">
+						{photos.map((photo, i) => (
+							<div class="photo-card" data-index={i} data-album={photo.album}>
+								<img
+									src={photo.src}
+									alt={photo.alt}
+									loading="lazy"
+									data-src={photo.src}
+									data-alt={photo.alt}
+								/>
+								{photo.caption && <div class="caption">{photo.caption}</div>}
+								{albums.length > 1 && photo.album !== 'uncategorized' && (
+									<div class="album-tag">{photo.album}</div>
+								)}
+							</div>
+						))}
+					</div>
+				</>
+			)}
 		</main>
 
 		<!-- Lightbox -->
@@ -176,6 +304,26 @@ try {
 		<Footer />
 
 		<script>
+			// Filter buttons
+			document.querySelectorAll('.filter-btn').forEach(btn => {
+				btn.addEventListener('click', () => {
+					const album = (btn as HTMLElement).dataset.album;
+
+					document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+					btn.classList.add('active');
+
+					document.querySelectorAll('.photo-card').forEach(card => {
+						const cardAlbum = (card as HTMLElement).dataset.album;
+						if (album === 'all' || cardAlbum === album) {
+							card.classList.remove('hidden');
+						} else {
+							card.classList.add('hidden');
+						}
+					});
+				});
+			});
+
+			// Lightbox
 			function openLightbox(src: string, alt: string) {
 				const lb = document.getElementById('lightbox');
 				const img = document.getElementById('lightbox-img') as HTMLImageElement;
@@ -193,8 +341,7 @@ try {
 				document.body.style.overflow = '';
 			}
 
-			// Wire up photo cards via event listeners
-			document.querySelectorAll('.photo-card img').forEach((img) => {
+			document.querySelectorAll('.photo-card img').forEach(img => {
 				img.addEventListener('click', () => {
 					const src = (img as HTMLElement).dataset.src || (img as HTMLImageElement).src;
 					const alt = (img as HTMLImageElement).alt;
@@ -202,22 +349,13 @@ try {
 				});
 			});
 
-			// Close on overlay click
 			document.getElementById('lightbox')?.addEventListener('click', closeLightbox);
-
-			// Stop click on image from closing lightbox
-			document.getElementById('lightbox-img')?.addEventListener('click', (e) => {
-				e.stopPropagation();
-			});
-
-			// Close button
-			document.getElementById('lightbox-close')?.addEventListener('click', (e) => {
+			document.getElementById('lightbox-img')?.addEventListener('click', e => e.stopPropagation());
+			document.getElementById('lightbox-close')?.addEventListener('click', e => {
 				e.stopPropagation();
 				closeLightbox();
 			});
-
-			// Close on Escape key
-			document.addEventListener('keydown', (e) => {
+			document.addEventListener('keydown', e => {
 				if (e.key === 'Escape') closeLightbox();
 			});
 		</script>
