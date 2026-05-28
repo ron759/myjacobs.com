@@ -3,90 +3,30 @@ import BaseHead from '../components/BaseHead.astro';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import { SITE_TITLE } from '../consts';
-import { readdir } from 'fs/promises';
-import path from 'path';
+import { getCollection } from 'astro:content';
 
-// Auto-scan public/images/ including subfolders.
-// Subfolder name becomes the album/filter label.
-//   public/images/hawaii/sunset.jpg      → album: "Hawaii"
-//   public/images/christmas-2025/        → album: "Christmas 2025"
-//   public/images/loose-photo.jpg        → album: "uncategorized"
+// Pull photos from the Cloudinary content collection (defined in src/content/config.ts).
+// Each entry has: id, data.public_id, data.secure_url, data.width, data.height, data.context
 //
-// Naming convention for captions: use hyphens or underscores as word separators.
-//   hawaii-sunset.jpg   → caption: "Hawaii sunset"
-//   IMG_2663.jpg        → no caption (generic camera filenames ignored)
+// Optional: add captions via Cloudinary's "caption" context field on any asset.
+// In Cloudinary Media Library: open an asset → "Manage" tab → Context → add key "caption".
 
-const imageDir = path.join(process.cwd(), 'public/images');
-const validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.JPG', '.JPEG', '.PNG', '.WEBP'];
-const genericPattern = /^(IMG|DSC|DCIM|photo|image|screenshot)[-_]?\d+$/i;
-
-interface Photo {
-	src: string;
-	alt: string;
-	caption: string;
-	album: string;
-}
-
-function makeCaption(filename: string): string {
-	const base = path.basename(filename, path.extname(filename));
-	const words = base.replace(/[-_]+/g, ' ').trim();
-	if (genericPattern.test(base)) return '';
-	return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-function makeLabel(folderName: string): string {
-	return folderName.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-}
-
-let photos: Photo[] = [];
-let albums: string[] = [];
+let photos: { publicId: string; src: string; width: number; height: number; caption: string }[] = [];
 
 try {
-	const entries = await readdir(imageDir, { withFileTypes: true });
-
-	// Photos sitting directly in public/images/ (no subfolder)
-	const rootPhotos: Photo[] = entries
-		.filter(e => e.isFile() && validExtensions.includes(path.extname(e.name)))
-		.sort((a, b) => a.name.localeCompare(b.name))
-		.map(e => ({
-			src: `/images/${e.name}`,
-			alt: e.name.replace(/[-_]+/g, ' '),
-			caption: makeCaption(e.name),
-			album: 'uncategorized',
-		}));
-
-	// Photos inside subfolders
-	const subfolderPhotos: Photo[] = [];
-	const subfolders = entries
-		.filter(e => e.isDirectory())
-		.sort((a, b) => a.name.localeCompare(b.name));
-
-	for (const folder of subfolders) {
-		const folderPath = path.join(imageDir, folder.name);
-		const folderFiles = await readdir(folderPath);
-		const label = makeLabel(folder.name);
-		folderFiles
-			.filter(f => validExtensions.includes(path.extname(f)))
-			.sort()
-			.forEach(f => {
-				subfolderPhotos.push({
-					src: `/images/${folder.name}/${f}`,
-					alt: f.replace(/[-_]+/g, ' '),
-					caption: makeCaption(f),
-					album: label,
-				});
-			});
-	}
-
-	photos = [...subfolderPhotos, ...rootPhotos];
-
-	// Build album list for filter buttons (unique, sorted)
-	const albumSet = new Set(photos.map(p => p.album).filter(a => a !== 'uncategorized'));
-	albums = Array.from(albumSet).sort();
-	if (rootPhotos.length > 0) albums.push('uncategorized');
-
+	const assets = await getCollection('gallery');
+	photos = assets.map((asset) => {
+		const caption = asset.data.context?.caption ?? asset.data.context?.alt ?? '';
+		return {
+			publicId: asset.data.public_id,
+			src: asset.data.secure_url,
+			width: asset.data.width,
+			height: asset.data.height,
+			caption,
+		};
+	});
 } catch (e) {
-	// public/images/ doesn't exist yet
+	// Collection not yet defined or Cloudinary not configured — shows empty state
 }
 ---
 
@@ -94,17 +34,17 @@ try {
 <html lang="en">
 	<head>
 		<BaseHead title={`Gallery | ${SITE_TITLE}`} description="Photo gallery" />
-		<style is:global>
+		<style>
 			body {
 				background: #f4f6fb;
 				background-size: unset;
 			}
+
 			body > main {
 				padding-top: 0;
 			}
 
-			/* Page header */
-			.gallery-page-header {
+			.page-header {
 				background: #1a2744;
 				color: white;
 				text-align: center;
@@ -113,53 +53,26 @@ try {
 				position: relative;
 				left: 50%;
 				transform: translateX(-50%);
-				margin-bottom: 2em;
+				margin-bottom: 2.5em;
 			}
-			.gallery-page-header h1 {
+			.page-header h1 {
 				font-size: 2.441em;
 				margin-bottom: 0.2em;
 				color: white;
 			}
-			.gallery-page-header p {
+			.page-header p {
 				color: #a8b8d8;
 				margin: 0;
 				font-style: italic;
 			}
 
-			/* Filter buttons */
-			.filters {
-				display: flex;
-				flex-wrap: wrap;
-				gap: 0.6em;
-				margin-bottom: 2em;
-			}
-			.filter-btn {
-				background: white;
-				border: 1px solid rgb(var(--gray-light));
-				border-radius: 20px;
-				padding: 0.4em 1.1em;
-				font-size: 0.85em;
-				cursor: pointer;
-				color: rgb(var(--gray-dark));
-				transition: all 0.15s ease;
-				font-family: inherit;
-			}
-			.filter-btn:hover {
-				border-color: #1a2744;
-				color: #1a2744;
-			}
-			.filter-btn.active {
-				background: #1a2744;
-				border-color: #1a2744;
-				color: white;
-			}
-
-			/* Gallery grid */
 			.gallery-grid {
 				display: grid;
 				grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 				gap: 1.5em;
+				margin-bottom: 3em;
 			}
+
 			.photo-card {
 				display: flex;
 				flex-direction: column;
@@ -167,19 +80,16 @@ try {
 				overflow: hidden;
 				box-shadow: var(--box-shadow);
 				transition: transform 0.2s ease, box-shadow 0.2s ease;
+				background: white;
 			}
 			.photo-card:hover {
 				transform: translateY(-4px);
 				box-shadow: 0 8px 24px rgba(var(--gray), 40%);
 			}
-			.photo-card.hidden {
-				display: none;
-			}
 			.photo-card img {
 				width: 100%;
 				height: 220px;
 				object-fit: cover;
-				border-radius: 0;
 				display: block;
 				cursor: pointer;
 			}
@@ -187,16 +97,8 @@ try {
 				padding: 0.75em 1em;
 				font-size: 0.9em;
 				color: rgb(var(--gray-dark));
-				background: white;
 			}
-			.photo-card .album-tag {
-				padding: 0.3em 1em 0.6em;
-				font-size: 0.75em;
-				color: rgb(var(--gray));
-				background: white;
-				text-transform: uppercase;
-				letter-spacing: 0.05em;
-			}
+
 			.empty-state {
 				grid-column: 1 / -1;
 				text-align: center;
@@ -209,13 +111,19 @@ try {
 				margin: 0;
 				font-size: 0.95em;
 			}
+			.empty-state code {
+				font-size: 0.9em;
+				background: rgb(var(--gray-light));
+				padding: 0.1em 0.4em;
+				border-radius: 3px;
+			}
 
 			/* Lightbox */
 			.lightbox {
 				display: none;
 				position: fixed;
 				inset: 0;
-				background: rgba(0, 0, 0, 0.85);
+				background: rgba(0, 0, 0, 0.88);
 				z-index: 1000;
 				align-items: center;
 				justify-content: center;
@@ -229,7 +137,7 @@ try {
 				max-height: 90vh;
 				object-fit: contain;
 				border-radius: 4px;
-				box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+				box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
 				cursor: default;
 			}
 			.lightbox-close {
@@ -241,121 +149,134 @@ try {
 				cursor: pointer;
 				line-height: 1;
 				opacity: 0.8;
+				background: none;
+				border: none;
+				padding: 0;
 			}
 			.lightbox-close:hover {
 				opacity: 1;
+			}
+			.lightbox-caption {
+				position: absolute;
+				bottom: 1.5em;
+				left: 50%;
+				transform: translateX(-50%);
+				color: rgba(255, 255, 255, 0.85);
+				font-size: 0.9em;
+				text-align: center;
+				max-width: 80vw;
+				pointer-events: none;
+			}
+
+			@media (max-width: 720px) {
+				.page-header h1 {
+					font-size: 1.953em;
+				}
 			}
 		</style>
 	</head>
 	<body>
 		<Header />
 		<main>
-			<div class="gallery-page-header">
+
+			<div class="page-header">
 				<h1>Gallery</h1>
 				<p>Photos worth keeping.</p>
 			</div>
 
-			{photos.length === 0 ? (
-				<div class="gallery-grid">
+			<div class="gallery-grid">
+				{photos.length === 0 ? (
 					<div class="empty-state">
-						<p>No photos yet — drop image files into <code>public/images/</code> or subfolders inside it.</p>
+						<p>
+							No photos yet — make sure <code>astro-cloudinary</code> is installed,
+							your <code>CLOUDINARY_CLOUD_NAME</code> env var is set, and a
+							<code>gallery</code> collection is defined in <code>src/content/config.ts</code>.
+						</p>
 					</div>
-				</div>
-			) : (
-				<>
-					{albums.length > 1 && (
-						<div class="filters" id="filters">
-							<button class="filter-btn active" data-album="all">All</button>
-							{albums.map(album => (
-								<button class="filter-btn" data-album={album}>
-									{album === 'uncategorized' ? 'Uncategorized' : album}
-								</button>
-							))}
-						</div>
-					)}
-
-					<div class="gallery-grid" id="gallery-grid">
-						{photos.map((photo, i) => (
-							<div class="photo-card" data-index={i} data-album={photo.album}>
+				) : (
+					photos.map((photo, i) => {
+						// Build a Cloudinary URL: auto format + quality, crop to fill at 600×440 (2× card size)
+						const optimizedSrc = photo.src.replace(
+							'/upload/',
+							'/upload/f_auto,q_auto,w_600,h_440,c_fill/'
+						);
+						// Full-res URL for lightbox (cap at 1600px wide, still auto format/quality)
+						const fullSrc = photo.src.replace(
+							'/upload/',
+							'/upload/f_auto,q_auto,w_1600/'
+						);
+						return (
+							<div
+								class="photo-card"
+								data-index={i}
+								data-full={fullSrc}
+								data-caption={photo.caption}
+							>
 								<img
-									src={photo.src}
-									alt={photo.alt}
+									src={optimizedSrc}
+									alt={photo.caption || `Photo ${i + 1}`}
 									loading="lazy"
-									data-src={photo.src}
-									data-alt={photo.alt}
+									width={600}
+									height={440}
 								/>
 								{photo.caption && <div class="caption">{photo.caption}</div>}
-								{albums.length > 1 && photo.album !== 'uncategorized' && (
-									<div class="album-tag">{photo.album}</div>
-								)}
 							</div>
-						))}
-					</div>
-				</>
-			)}
+						);
+					})
+				)}
+			</div>
+
 		</main>
 
 		<!-- Lightbox -->
-		<div class="lightbox" id="lightbox">
-			<span class="lightbox-close" id="lightbox-close">&times;</span>
+		<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Photo viewer">
+			<button class="lightbox-close" id="lightbox-close" aria-label="Close">&times;</button>
 			<img id="lightbox-img" src="" alt="" />
+			<div class="lightbox-caption" id="lightbox-caption"></div>
 		</div>
 
 		<Footer />
 
 		<script>
-			// Filter buttons
-			document.querySelectorAll('.filter-btn').forEach(btn => {
-				btn.addEventListener('click', () => {
-					const album = (btn as HTMLElement).dataset.album;
+			const lightbox     = document.getElementById('lightbox')!;
+			const lbImg        = document.getElementById('lightbox-img') as HTMLImageElement;
+			const lbCaption    = document.getElementById('lightbox-caption')!;
+			const lbClose      = document.getElementById('lightbox-close')!;
 
-					document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-					btn.classList.add('active');
-
-					document.querySelectorAll('.photo-card').forEach(card => {
-						const cardAlbum = (card as HTMLElement).dataset.album;
-						if (album === 'all' || cardAlbum === album) {
-							card.classList.remove('hidden');
-						} else {
-							card.classList.add('hidden');
-						}
-					});
-				});
-			});
-
-			// Lightbox
-			function openLightbox(src: string, alt: string) {
-				const lb = document.getElementById('lightbox');
-				const img = document.getElementById('lightbox-img') as HTMLImageElement;
-				if (!lb || !img) return;
-				img.src = src;
-				img.alt = alt;
-				lb.classList.add('open');
+			function openLightbox(src: string, alt: string, caption: string) {
+				lbImg.src        = src;
+				lbImg.alt        = alt;
+				lbCaption.textContent = caption;
+				lightbox.classList.add('open');
 				document.body.style.overflow = 'hidden';
+				lbClose.focus();
 			}
 
 			function closeLightbox() {
-				const lb = document.getElementById('lightbox');
-				if (!lb) return;
-				lb.classList.remove('open');
+				lightbox.classList.remove('open');
 				document.body.style.overflow = '';
 			}
 
-			document.querySelectorAll('.photo-card img').forEach(img => {
-				img.addEventListener('click', () => {
-					const src = (img as HTMLElement).dataset.src || (img as HTMLImageElement).src;
-					const alt = (img as HTMLImageElement).alt;
-					openLightbox(src, alt);
+			// Wire up cards
+			document.querySelectorAll<HTMLElement>('.photo-card').forEach((card) => {
+				card.addEventListener('click', () => {
+					const full    = card.dataset.full    ?? '';
+					const caption = card.dataset.caption ?? '';
+					const img     = card.querySelector('img');
+					const alt     = img?.alt ?? '';
+					openLightbox(full, alt, caption);
 				});
 			});
 
-			document.getElementById('lightbox')?.addEventListener('click', closeLightbox);
-			document.getElementById('lightbox-img')?.addEventListener('click', e => e.stopPropagation());
-			document.getElementById('lightbox-close')?.addEventListener('click', e => {
-				e.stopPropagation();
-				closeLightbox();
-			});
-			document.addEventListener('keydown', e => {
+			// Close on backdrop click
+			lightbox.addEventListener('click', closeLightbox);
+
+			// Stop clicks on the image or close button from bubbling to backdrop
+			lbImg.addEventListener('click',   (e) => e.stopPropagation());
+			lbClose.addEventListener('click',  (e) => { e.stopPropagation(); closeLightbox(); });
+
+			// Keyboard
+			document.addEventListener('keydown', (e) => {
 				if (e.key === 'Escape') closeLightbox();
 			});
 		</script>
