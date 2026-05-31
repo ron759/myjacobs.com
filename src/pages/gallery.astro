@@ -3,30 +3,51 @@ import BaseHead from '../components/BaseHead.astro';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import { SITE_TITLE } from '../consts';
-import { getCollection } from 'astro:content';
 
-// Pull photos from the Cloudinary content collection (defined in src/content/config.ts).
-// Each entry has: id, data.public_id, data.secure_url, data.width, data.height, data.context
+// Fetch photos directly from the Cloudinary REST API — no astro-cloudinary package needed.
+// Set these three env vars (locally in .env, and in Vercel dashboard):
+//   CLOUDINARY_CLOUD_NAME
+//   CLOUDINARY_API_KEY
+//   CLOUDINARY_API_SECRET
 //
-// Optional: add captions via Cloudinary's "caption" context field on any asset.
-// In Cloudinary Media Library: open an asset → "Manage" tab → Context → add key "caption".
+// Add captions in Cloudinary Media Library: open an asset → Manage tab → Context → key: "caption"
 
-let photos: { publicId: string; src: string; width: number; height: number; caption: string }[] = [];
+const CLOUD_NAME  = import.meta.env.CLOUDINARY_CLOUD_NAME;
+const API_KEY     = import.meta.env.CLOUDINARY_API_KEY;
+const API_SECRET  = import.meta.env.CLOUDINARY_API_SECRET;
+const FOLDER      = 'jacobs-family'; // change this if you name your Cloudinary folder differently
 
-try {
-	const assets = await getCollection('gallery');
-	photos = assets.map((asset) => {
-		const caption = asset.data.context?.caption ?? asset.data.context?.alt ?? '';
-		return {
-			publicId: asset.data.public_id,
-			src: asset.data.secure_url,
-			width: asset.data.width,
-			height: asset.data.height,
-			caption,
+type Photo = { src: string; caption: string };
+let photos: Photo[] = [];
+let error = '';
+
+if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
+	error = 'Cloudinary env vars are not set.';
+} else {
+	try {
+		const credentials = btoa(`${API_KEY}:${API_SECRET}`);
+		const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/resources/image?type=upload&prefix=${FOLDER}&max_results=500&context=true`;
+
+		const res = await fetch(url, {
+			headers: { Authorization: `Basic ${credentials}` },
+		});
+
+		if (!res.ok) throw new Error(`Cloudinary API error: ${res.status}`);
+
+		const data = await res.json() as {
+			resources: Array<{
+				secure_url: string;
+				context?: { custom?: { caption?: string; alt?: string } };
+			}>;
 		};
-	});
-} catch (e) {
-	// Collection not yet defined or Cloudinary not configured — shows empty state
+
+		photos = data.resources.map((r) => ({
+			src: r.secure_url,
+			caption: r.context?.custom?.caption ?? r.context?.custom?.alt ?? '',
+		}));
+	} catch (e) {
+		error = e instanceof Error ? e.message : 'Unknown error fetching photos.';
+	}
 }
 ---
 
@@ -81,6 +102,7 @@ try {
 				box-shadow: var(--box-shadow);
 				transition: transform 0.2s ease, box-shadow 0.2s ease;
 				background: white;
+				cursor: pointer;
 			}
 			.photo-card:hover {
 				transform: translateY(-4px);
@@ -91,7 +113,6 @@ try {
 				height: 220px;
 				object-fit: cover;
 				display: block;
-				cursor: pointer;
 			}
 			.photo-card .caption {
 				padding: 0.75em 1em;
@@ -185,35 +206,31 @@ try {
 			</div>
 
 			<div class="gallery-grid">
-				{photos.length === 0 ? (
+				{error ? (
+					<div class="empty-state">
+						<p>Could not load photos: <code>{error}</code></p>
+					</div>
+				) : photos.length === 0 ? (
 					<div class="empty-state">
 						<p>
-							No photos yet — make sure <code>astro-cloudinary</code> is installed,
-							your <code>CLOUDINARY_CLOUD_NAME</code> env var is set, and a
-							<code>gallery</code> collection is defined in <code>src/content/config.ts</code>.
+							No photos yet — upload images to the <code>{FOLDER}</code> folder
+							in your Cloudinary Media Library and they'll appear here automatically.
 						</p>
 					</div>
 				) : (
 					photos.map((photo, i) => {
-						// Build a Cloudinary URL: auto format + quality, crop to fill at 600×440 (2× card size)
-						const optimizedSrc = photo.src.replace(
-							'/upload/',
-							'/upload/f_auto,q_auto,w_600,h_440,c_fill/'
-						);
-						// Full-res URL for lightbox (cap at 1600px wide, still auto format/quality)
-						const fullSrc = photo.src.replace(
-							'/upload/',
-							'/upload/f_auto,q_auto,w_1600/'
-						);
+						// Inject Cloudinary transformations: auto format/quality, crop to fill at thumbnail size
+						const thumbSrc = photo.src.replace('/upload/', '/upload/f_auto,q_auto,w_600,h_440,c_fill/');
+						// Full-res for lightbox
+						const fullSrc  = photo.src.replace('/upload/', '/upload/f_auto,q_auto,w_1600/');
 						return (
 							<div
 								class="photo-card"
-								data-index={i}
 								data-full={fullSrc}
 								data-caption={photo.caption}
 							>
 								<img
-									src={optimizedSrc}
+									src={thumbSrc}
 									alt={photo.caption || `Photo ${i + 1}`}
 									loading="lazy"
 									width={600}
@@ -238,14 +255,14 @@ try {
 		<Footer />
 
 		<script>
-			const lightbox     = document.getElementById('lightbox')!;
-			const lbImg        = document.getElementById('lightbox-img') as HTMLImageElement;
-			const lbCaption    = document.getElementById('lightbox-caption')!;
-			const lbClose      = document.getElementById('lightbox-close')!;
+			const lightbox  = document.getElementById('lightbox')!;
+			const lbImg     = document.getElementById('lightbox-img') as HTMLImageElement;
+			const lbCaption = document.getElementById('lightbox-caption')!;
+			const lbClose   = document.getElementById('lightbox-close')!;
 
 			function openLightbox(src: string, alt: string, caption: string) {
-				lbImg.src        = src;
-				lbImg.alt        = alt;
+				lbImg.src = src;
+				lbImg.alt = alt;
 				lbCaption.textContent = caption;
 				lightbox.classList.add('open');
 				document.body.style.overflow = 'hidden';
@@ -257,28 +274,20 @@ try {
 				document.body.style.overflow = '';
 			}
 
-			// Wire up cards
 			document.querySelectorAll<HTMLElement>('.photo-card').forEach((card) => {
 				card.addEventListener('click', () => {
-					const full    = card.dataset.full    ?? '';
-					const caption = card.dataset.caption ?? '';
-					const img     = card.querySelector('img');
-					const alt     = img?.alt ?? '';
-					openLightbox(full, alt, caption);
+					openLightbox(
+						card.dataset.full    ?? '',
+						card.querySelector('img')?.alt ?? '',
+						card.dataset.caption ?? '',
+					);
 				});
 			});
 
-			// Close on backdrop click
 			lightbox.addEventListener('click', closeLightbox);
-
-			// Stop clicks on the image or close button from bubbling to backdrop
-			lbImg.addEventListener('click',   (e) => e.stopPropagation());
-			lbClose.addEventListener('click',  (e) => { e.stopPropagation(); closeLightbox(); });
-
-			// Keyboard
-			document.addEventListener('keydown', (e) => {
-				if (e.key === 'Escape') closeLightbox();
-			});
+			lbImg.addEventListener('click',  (e) => e.stopPropagation());
+			lbClose.addEventListener('click', (e) => { e.stopPropagation(); closeLightbox(); });
+			document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
 		</script>
 	</body>
 </html>

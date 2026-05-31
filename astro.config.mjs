@@ -4,9 +4,8 @@ import sitemap from '@astrojs/sitemap';
 import { defineConfig, fontProviders } from 'astro/config';
 import vercel from '@astrojs/vercel';
 
-// https://astro.build/config
 export default defineConfig({
-	site: 'https://example.com',
+	site: 'https://myjacobs.com',
 	output: 'server',
 	adapter: vercel(),
 	integrations: [mdx(), sitemap()],
