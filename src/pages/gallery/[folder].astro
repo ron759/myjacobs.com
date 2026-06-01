@@ -1,0 +1,266 @@
+---
+import BaseHead from '../../components/BaseHead.astro';
+import Header from '../../components/Header.astro';
+import Footer from '../../components/Footer.astro';
+import { SITE_TITLE } from '../../consts';
+import { getPhotos, fullUrl, thumbUrl } from '../../lib/cloudinary';
+
+const { folder } = Astro.params;
+
+if (!folder) return Astro.redirect('/gallery');
+
+// Parse year and name from folder string e.g. "2026-Bahamas"
+const dashIndex = folder.indexOf('-');
+const year = dashIndex > -1 ? folder.slice(0, dashIndex) : '';
+const name = dashIndex > -1 ? folder.slice(dashIndex + 1).replace(/-/g, ' ') : folder;
+
+const { photos, error } = await getPhotos(folder);
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<BaseHead title={`${name} ${year} | Gallery | ${SITE_TITLE}`} description={`Photos from ${name} ${year}`} />
+		<style>
+			body {
+				background: #f4f6fb;
+				background-size: unset;
+			}
+			body > main {
+				padding-top: 0;
+			}
+
+			.page-header {
+				background: #1a2744;
+				color: white;
+				text-align: center;
+				padding: 3em 1em 2.5em;
+				width: 100vw;
+				position: relative;
+				left: 50%;
+				transform: translateX(-50%);
+				margin-bottom: 2.5em;
+			}
+			.page-header .back-link {
+				display: inline-block;
+				color: #a8b8d8;
+				font-size: 0.85em;
+				text-decoration: none;
+				margin-bottom: 0.75em;
+				transition: color 0.15s ease;
+			}
+			.page-header .back-link:hover { color: white; }
+			.page-header .year-label {
+				font-size: 0.9em;
+				font-weight: 700;
+				color: #f0c060;
+				text-transform: uppercase;
+				letter-spacing: 0.1em;
+				margin-bottom: 0.2em;
+			}
+			.page-header h1 {
+				font-size: 2.441em;
+				margin: 0 0 0.15em;
+				color: white;
+			}
+			.page-header .photo-count {
+				color: #a8b8d8;
+				margin: 0;
+				font-style: italic;
+				font-size: 0.9em;
+			}
+
+			.gallery-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+				gap: 1.5em;
+				margin-bottom: 3em;
+			}
+
+			.photo-card {
+				display: flex;
+				flex-direction: column;
+				border-radius: 8px;
+				overflow: hidden;
+				box-shadow: var(--box-shadow);
+				transition: transform 0.2s ease, box-shadow 0.2s ease;
+				background: white;
+				cursor: pointer;
+			}
+			.photo-card:hover {
+				transform: translateY(-4px);
+				box-shadow: 0 8px 24px rgba(var(--gray), 40%);
+			}
+			.photo-card img {
+				width: 100%;
+				height: 220px;
+				object-fit: cover;
+				display: block;
+			}
+			.photo-card .caption {
+				padding: 0.75em 1em;
+				font-size: 0.9em;
+				color: rgb(var(--gray-dark));
+			}
+
+			.empty-state {
+				grid-column: 1 / -1;
+				text-align: center;
+				padding: 4em 2em;
+				color: rgb(var(--gray));
+				border: 2px dashed rgb(var(--gray-light));
+				border-radius: 8px;
+			}
+			.empty-state p { margin: 0; font-size: 0.95em; }
+			.empty-state code {
+				font-size: 0.9em;
+				background: rgb(var(--gray-light));
+				padding: 0.1em 0.4em;
+				border-radius: 3px;
+			}
+
+			/* Lightbox */
+			.lightbox {
+				display: none;
+				position: fixed;
+				inset: 0;
+				background: rgba(0, 0, 0, 0.88);
+				z-index: 1000;
+				align-items: center;
+				justify-content: center;
+				cursor: pointer;
+			}
+			.lightbox.open { display: flex; }
+			.lightbox img {
+				max-width: 90vw;
+				max-height: 90vh;
+				object-fit: contain;
+				border-radius: 4px;
+				box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+				cursor: default;
+			}
+			.lightbox-close {
+				position: absolute;
+				top: 1.5em;
+				right: 1.5em;
+				color: white;
+				font-size: 2em;
+				cursor: pointer;
+				line-height: 1;
+				opacity: 0.8;
+				background: none;
+				border: none;
+				padding: 0;
+			}
+			.lightbox-close:hover { opacity: 1; }
+			.lightbox-caption {
+				position: absolute;
+				bottom: 1.5em;
+				left: 50%;
+				transform: translateX(-50%);
+				color: rgba(255, 255, 255, 0.85);
+				font-size: 0.9em;
+				text-align: center;
+				max-width: 80vw;
+				pointer-events: none;
+			}
+
+			@media (max-width: 720px) {
+				.page-header h1 { font-size: 1.953em; }
+			}
+		</style>
+	</head>
+	<body>
+		<Header />
+		<main>
+
+			<div class="page-header">
+				<div><a class="back-link" href="/gallery">← All Albums</a></div>
+				{year && <div class="year-label">{year}</div>}
+				<h1>{name}</h1>
+				{!error && (
+					<p class="photo-count">{photos.length} {photos.length === 1 ? 'photo' : 'photos'}</p>
+				)}
+			</div>
+
+			<div class="gallery-grid">
+				{error ? (
+					<div class="empty-state">
+						<p>Could not load photos: <code>{error}</code></p>
+					</div>
+				) : photos.length === 0 ? (
+					<div class="empty-state">
+						<p>No photos in this album yet.</p>
+					</div>
+				) : (
+					photos.map((photo, i) => {
+						const thumb = thumbUrl(photo.src);
+						const full  = fullUrl(photo.src);
+						return (
+							<div
+								class="photo-card"
+								data-full={full}
+								data-caption={photo.caption}
+							>
+								<img
+									src={thumb}
+									alt={photo.caption || `Photo ${i + 1}`}
+									loading="lazy"
+									width={600}
+									height={440}
+								/>
+								{photo.caption && <div class="caption">{photo.caption}</div>}
+							</div>
+						);
+					})
+				)}
+			</div>
+
+		</main>
+
+		<!-- Lightbox -->
+		<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Photo viewer">
+			<button class="lightbox-close" id="lightbox-close" aria-label="Close">&times;</button>
+			<img id="lightbox-img" src="" alt="" />
+			<div class="lightbox-caption" id="lightbox-caption"></div>
+		</div>
+
+		<Footer />
+
+		<script>
+			const lightbox  = document.getElementById('lightbox')!;
+			const lbImg     = document.getElementById('lightbox-img') as HTMLImageElement;
+			const lbCaption = document.getElementById('lightbox-caption')!;
+			const lbClose   = document.getElementById('lightbox-close')!;
+
+			function openLightbox(src: string, alt: string, caption: string) {
+				lbImg.src = src;
+				lbImg.alt = alt;
+				lbCaption.textContent = caption;
+				lightbox.classList.add('open');
+				document.body.style.overflow = 'hidden';
+				lbClose.focus();
+			}
+
+			function closeLightbox() {
+				lightbox.classList.remove('open');
+				document.body.style.overflow = '';
+			}
+
+			document.querySelectorAll<HTMLElement>('.photo-card').forEach((card) => {
+				card.addEventListener('click', () => {
+					openLightbox(
+						card.dataset.full    ?? '',
+						card.querySelector('img')?.alt ?? '',
+						card.dataset.caption ?? '',
+					);
+				});
+			});
+
+			lightbox.addEventListener('click', closeLightbox);
+			lbImg.addEventListener('click',  (e) => e.stopPropagation());
+			lbClose.addEventListener('click', (e) => { e.stopPropagation(); closeLightbox(); });
+			document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+		</script>
+	</body>
+</html>

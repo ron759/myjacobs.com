@@ -3,65 +3,20 @@ import BaseHead from '../components/BaseHead.astro';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import { SITE_TITLE } from '../consts';
+import { getAlbums } from '../lib/cloudinary';
 
-// Fetch photos directly from the Cloudinary REST API — no astro-cloudinary package needed.
-// Set these three env vars (locally in .env, and in Vercel dashboard):
-//   CLOUDINARY_CLOUD_NAME
-//   CLOUDINARY_API_KEY
-//   CLOUDINARY_API_SECRET
-//
-// Add captions in Cloudinary Media Library: open an asset → Manage tab → Context → key: "caption"
-
-const CLOUD_NAME  = import.meta.env.CLOUDINARY_CLOUD_NAME;
-const API_KEY     = import.meta.env.CLOUDINARY_API_KEY;
-const API_SECRET  = import.meta.env.CLOUDINARY_API_SECRET;
-const FOLDER      = 'jacobs-family'; // change this if you name your Cloudinary folder differently
-// console.log('ENV CHECK:', !!CLOUD_NAME, !!API_KEY, !!API_SECRET);
-
-type Photo = { src: string; caption: string };
-let photos: Photo[] = [];
-let error = '';
-
-if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
-	error = 'Cloudinary env vars are not set.';
-} else {
-	try {
-		const credentials = btoa(`${API_KEY}:${API_SECRET}`);
-		const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/resources/image?type=upload&asset_folder=${FOLDER}&max_results=500&context=true`;
-
-		const res = await fetch(url, {
-			headers: { Authorization: `Basic ${credentials}` },
-		});
-
-		if (!res.ok) throw new Error(`Cloudinary API error: ${res.status}`);
-
-		const data = await res.json() as {
-			resources: Array<{
-				secure_url: string;
-				context?: { custom?: { caption?: string; alt?: string } };
-			}>;
-		};
-
-		photos = data.resources.map((r) => ({
-			src: r.secure_url,
-			caption: r.context?.custom?.caption ?? r.context?.custom?.alt ?? '',
-		}));
-	} catch (e) {
-		error = e instanceof Error ? e.message : 'Unknown error fetching photos.';
-	}
-}
+const { albums, error } = await getAlbums();
 ---
 
 <!doctype html>
 <html lang="en">
 	<head>
-		<BaseHead title={`Gallery | ${SITE_TITLE}`} description="Photo gallery" />
+		<BaseHead title={`Gallery | ${SITE_TITLE}`} description="Family photo albums" />
 		<style>
 			body {
 				background: #f4f6fb;
 				background-size: unset;
 			}
-
 			body > main {
 				padding-top: 0;
 			}
@@ -88,14 +43,14 @@ if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
 				font-style: italic;
 			}
 
-			.gallery-grid {
+			.albums-grid {
 				display: grid;
 				grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 				gap: 1.5em;
 				margin-bottom: 3em;
 			}
 
-			.photo-card {
+			.album-card {
 				display: flex;
 				flex-direction: column;
 				border-radius: 8px;
@@ -103,22 +58,49 @@ if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
 				box-shadow: var(--box-shadow);
 				transition: transform 0.2s ease, box-shadow 0.2s ease;
 				background: white;
-				cursor: pointer;
+				text-decoration: none;
+				color: inherit;
 			}
-			.photo-card:hover {
+			.album-card:hover {
 				transform: translateY(-4px);
 				box-shadow: 0 8px 24px rgba(var(--gray), 40%);
 			}
-			.photo-card img {
+			.album-cover {
 				width: 100%;
-				height: 220px;
+				height: 200px;
 				object-fit: cover;
 				display: block;
 			}
-			.photo-card .caption {
-				padding: 0.75em 1em;
-				font-size: 0.9em;
-				color: rgb(var(--gray-dark));
+			.album-cover-placeholder {
+				width: 100%;
+				height: 200px;
+				background: #1a2744;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-size: 3em;
+			}
+			.album-info {
+				padding: 1em 1.1em 1.1em;
+			}
+			.album-year {
+				font-size: 0.75em;
+				font-weight: 700;
+				color: var(--accent);
+				text-transform: uppercase;
+				letter-spacing: 0.08em;
+				margin-bottom: 0.2em;
+			}
+			.album-name {
+				font-size: 1.05em;
+				font-weight: 600;
+				color: rgb(var(--black));
+				line-height: 1.3;
+			}
+			.album-count {
+				font-size: 0.8em;
+				color: rgb(var(--gray));
+				margin-top: 0.3em;
 			}
 
 			.empty-state {
@@ -129,10 +111,7 @@ if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
 				border: 2px dashed rgb(var(--gray-light));
 				border-radius: 8px;
 			}
-			.empty-state p {
-				margin: 0;
-				font-size: 0.95em;
-			}
+			.empty-state p { margin: 0; font-size: 0.95em; }
 			.empty-state code {
 				font-size: 0.9em;
 				background: rgb(var(--gray-light));
@@ -140,60 +119,8 @@ if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
 				border-radius: 3px;
 			}
 
-			/* Lightbox */
-			.lightbox {
-				display: none;
-				position: fixed;
-				inset: 0;
-				background: rgba(0, 0, 0, 0.88);
-				z-index: 1000;
-				align-items: center;
-				justify-content: center;
-				cursor: pointer;
-			}
-			.lightbox.open {
-				display: flex;
-			}
-			.lightbox img {
-				max-width: 90vw;
-				max-height: 90vh;
-				object-fit: contain;
-				border-radius: 4px;
-				box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
-				cursor: default;
-			}
-			.lightbox-close {
-				position: absolute;
-				top: 1.5em;
-				right: 1.5em;
-				color: white;
-				font-size: 2em;
-				cursor: pointer;
-				line-height: 1;
-				opacity: 0.8;
-				background: none;
-				border: none;
-				padding: 0;
-			}
-			.lightbox-close:hover {
-				opacity: 1;
-			}
-			.lightbox-caption {
-				position: absolute;
-				bottom: 1.5em;
-				left: 50%;
-				transform: translateX(-50%);
-				color: rgba(255, 255, 255, 0.85);
-				font-size: 0.9em;
-				text-align: center;
-				max-width: 80vw;
-				pointer-events: none;
-			}
-
 			@media (max-width: 720px) {
-				.page-header h1 {
-					font-size: 1.953em;
-				}
+				.page-header h1 { font-size: 1.953em; }
 			}
 		</style>
 	</head>
@@ -206,89 +133,44 @@ if (!CLOUD_NAME || !API_KEY || !API_SECRET) {
 				<p>Photos worth keeping.</p>
 			</div>
 
-			<div class="gallery-grid">
+			<div class="albums-grid">
 				{error ? (
 					<div class="empty-state">
-						<p>Could not load photos: <code>{error}</code></p>
+						<p>Could not load albums: <code>{error}</code></p>
 					</div>
-				) : photos.length === 0 ? (
+				) : albums.length === 0 ? (
 					<div class="empty-state">
 						<p>
-							No photos yet — upload images to the <code>{FOLDER}</code> folder
-							in your Cloudinary Media Library and they'll appear here automatically.
+							No albums yet — create subfolders inside <code>jacobs-family</code> in
+							Cloudinary named like <code>2026-Bahamas</code> and upload photos into them.
 						</p>
 					</div>
 				) : (
-					photos.map((photo, i) => {
-						// Inject Cloudinary transformations: auto format/quality, crop to fill at thumbnail size
-						const thumbSrc = photo.src.replace('/upload/', '/upload/f_auto,q_auto,w_600,h_440,c_fill/');
-						// Full-res for lightbox
-						const fullSrc  = photo.src.replace('/upload/', '/upload/f_auto,q_auto,w_1600/');
-						return (
-							<div
-								class="photo-card"
-								data-full={fullSrc}
-								data-caption={photo.caption}
-							>
+					albums.map((album) => (
+						<a class="album-card" href={`/gallery/${album.folder}`}>
+							{album.cover ? (
 								<img
-									src={thumbSrc}
-									alt={photo.caption || `Photo ${i + 1}`}
+									class="album-cover"
+									src={album.cover}
+									alt={`${album.name} cover photo`}
 									loading="lazy"
 									width={600}
 									height={440}
 								/>
-								{photo.caption && <div class="caption">{photo.caption}</div>}
+							) : (
+								<div class="album-cover-placeholder">📷</div>
+							)}
+							<div class="album-info">
+								<div class="album-year">{album.year}</div>
+								<div class="album-name">{album.name}</div>
+								<div class="album-count">{album.count} {album.count === 1 ? 'photo' : 'photos'}</div>
 							</div>
-						);
-					})
+						</a>
+					))
 				)}
 			</div>
 
 		</main>
-
-		<!-- Lightbox -->
-		<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Photo viewer">
-			<button class="lightbox-close" id="lightbox-close" aria-label="Close">&times;</button>
-			<img id="lightbox-img" src="" alt="" />
-			<div class="lightbox-caption" id="lightbox-caption"></div>
-		</div>
-
 		<Footer />
-
-		<script>
-			const lightbox  = document.getElementById('lightbox')!;
-			const lbImg     = document.getElementById('lightbox-img') as HTMLImageElement;
-			const lbCaption = document.getElementById('lightbox-caption')!;
-			const lbClose   = document.getElementById('lightbox-close')!;
-
-			function openLightbox(src: string, alt: string, caption: string) {
-				lbImg.src = src;
-				lbImg.alt = alt;
-				lbCaption.textContent = caption;
-				lightbox.classList.add('open');
-				document.body.style.overflow = 'hidden';
-				lbClose.focus();
-			}
-
-			function closeLightbox() {
-				lightbox.classList.remove('open');
-				document.body.style.overflow = '';
-			}
-
-			document.querySelectorAll<HTMLElement>('.photo-card').forEach((card) => {
-				card.addEventListener('click', () => {
-					openLightbox(
-						card.dataset.full    ?? '',
-						card.querySelector('img')?.alt ?? '',
-						card.dataset.caption ?? '',
-					);
-				});
-			});
-
-			lightbox.addEventListener('click', closeLightbox);
-			lbImg.addEventListener('click',  (e) => e.stopPropagation());
-			lbClose.addEventListener('click', (e) => { e.stopPropagation(); closeLightbox(); });
-			document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
-		</script>
 	</body>
 </html>
