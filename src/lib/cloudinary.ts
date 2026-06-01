@@ -92,9 +92,10 @@ export async function getAlbums(): Promise<{ albums: Album[]; error: string }> {
 		);
 
 		// Sort newest year first, then alphabetically by name
-		albums.sort((a, b) => b.year.localeCompare(a.year) || a.name.localeCompare(b.name));
+		const filteredAlbums = albums.filter(a => a.count > 0);
+		filteredAlbums.sort((a, b) => b.year.localeCompare(a.year) || a.name.localeCompare(b.name));
+		return { albums: filteredAlbums, error: '' };
 
-		return { albums, error: '' };
 	} catch (e) {
 		return { albums: [], error: e instanceof Error ? e.message : 'Unknown error.' };
 	}
