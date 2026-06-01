@@ -19,6 +19,12 @@ export type Album = {
 	count: number;
 };
 
+type CloudinaryResource = {
+	secure_url: string;
+	asset_folder: string;
+	context?: { custom?: { caption?: string; alt?: string } };
+};
+
 function credentials() {
 	return btoa(`${API_KEY}:${API_SECRET}`);
 }
@@ -37,8 +43,21 @@ export function cloudinaryConfigured() {
 }
 
 /**
- * Fetch all subfolders of ROOT (e.g. jacobs-family/2026-Bahamas)
- * and the first photo from each to use as a cover.
+ * Fetch ALL images under ROOT in one call, then group by asset_folder client-side.
+ * This works around Cloudinary's unreliable asset_folder filter parameter.
+ */
+async function fetchAllResources(): Promise<CloudinaryResource[]> {
+	const res = await fetch(
+		`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/resources/image?type=upload&max_results=500&context=true`,
+		{ headers: { Authorization: `Basic ${credentials()}` } }
+	);
+	if (!res.ok) throw new Error(`Cloudinary API error: ${res.status}`);
+	const data = await res.json() as { resources: CloudinaryResource[] };
+	return data.resources ?? [];
+}
+
+/**
+ * Fetch all subfolders of ROOT and build album list from actual resource data.
  */
 export async function getAlbums(): Promise<{ albums: Album[]; error: string }> {
 	if (!cloudinaryConfigured()) return { albums: [], error: 'Cloudinary env vars are not set.' };
@@ -53,45 +72,32 @@ export async function getAlbums(): Promise<{ albums: Album[]; error: string }> {
 		const foldersData = await foldersRes.json() as {
 			folders: Array<{ name: string; path: string }>;
 		};
-
 		const folders = foldersData.folders ?? [];
 
-		// 2. For each folder, grab the first photo as cover
-		const albums: Album[] = await Promise.all(
-			folders.map(async (f) => {
-				// folder name is like "2026-Bahamas" — split on first hyphen
-				const dashIndex = f.name.indexOf('-');
-				const year = dashIndex > -1 ? f.name.slice(0, dashIndex) : f.name;
-				const name = dashIndex > -1 ? f.name.slice(dashIndex + 1).replace(/-/g, ' ') : f.name;
+		// 2. Fetch all resources once and filter client-side
+		const allResources = await fetchAllResources();
 
-				// fetch just one photo for the cover
-				const coverRes = await fetch(
-					`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/resources/image?type=upload&asset_folder=${encodeURIComponent(f.path)}&max_results=1`,
-					{ headers: { Authorization: `Basic ${credentials()}` } }
-				);
-				const coverData = await coverRes.json() as {
-					resources: Array<{ secure_url: string }>;
-				};
-				const coverSrc = coverData.resources.length > 0 ? coverData.resources[0].secure_url : '';
+		// 3. Build albums
+		const albums: Album[] = folders.map((f) => {
+			const dashIndex = f.name.indexOf('-');
+			const year = dashIndex > -1 ? f.name.slice(0, dashIndex) : f.name;
+			const name = dashIndex > -1 ? f.name.slice(dashIndex + 1).replace(/-/g, ' ') : f.name;
 
-				// fetch count
-				const countRes = await fetch(
-					`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/resources/image?type=upload&asset_folder=${encodeURIComponent(f.path)}&max_results=500`,
-					{ headers: { Authorization: `Basic ${credentials()}` } }
-				);
-				const countData = await countRes.json() as { resources: Array<unknown> };
+			// Filter resources that actually belong to this folder
+			const folderResources = allResources.filter(r => r.asset_folder === f.path);
 
-				return {
-					folder: f.name,
-					year,
-					name,
-					cover: coverSrc ? thumbUrl(coverSrc) : '',
-					count: countData.resources.length,
-				};
-			})
-		);
+			const coverSrc = folderResources[0]?.secure_url ?? '';
 
-		// Sort newest year first, then alphabetically by name
+			return {
+				folder: f.name,
+				year,
+				name,
+				cover: coverSrc ? thumbUrl(coverSrc) : '',
+				count: folderResources.length,
+			};
+		});
+
+		// Hide empty folders, then sort newest year first, then alphabetically
 		const filteredAlbums = albums.filter(a => a.count > 0);
 		filteredAlbums.sort((a, b) => b.year.localeCompare(a.year) || a.name.localeCompare(b.name));
 		return { albums: filteredAlbums, error: '' };
@@ -109,23 +115,13 @@ export async function getPhotos(folder: string): Promise<{ photos: Photo[]; erro
 
 	try {
 		const path = `${ROOT}/${folder}`;
-		const res = await fetch(
-			`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/resources/image?type=upload&asset_folder=${encodeURIComponent(path)}&max_results=500&context=true`,
-			{ headers: { Authorization: `Basic ${credentials()}` } }
-		);
-		if (!res.ok) throw new Error(`Cloudinary API error: ${res.status}`);
 
-		const data = await res.json() as {
-			resources: Array<{
-				secure_url: string;
-				context?: { custom?: { caption?: string; alt?: string } };
-			}>;
-		};
+		// Fetch all resources and filter client-side by asset_folder
+		const allResources = await fetchAllResources();
+		const folderResources = allResources.filter(r => r.asset_folder === path);
 
-		const photos: Photo[] = data.resources.map((r) => ({
+		const photos: Photo[] = folderResources.map((r) => ({
 			src: r.secure_url,
-			thumb: thumbUrl(r.secure_url),
-			full: fullUrl(r.secure_url),
 			caption: r.context?.custom?.caption ?? r.context?.custom?.alt ?? '',
 		}));
 
