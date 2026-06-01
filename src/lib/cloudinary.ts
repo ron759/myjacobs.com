@@ -72,7 +72,7 @@ export async function getAlbums(): Promise<{ albums: Album[]; error: string }> {
 				const coverData = await coverRes.json() as {
 					resources: Array<{ secure_url: string }>;
 				};
-				const coverSrc = coverData.resources[0]?.secure_url ?? '';
+				const coverSrc = coverData.resources.length > 0 ? coverData.resources[0].secure_url : '';
 
 				// fetch count
 				const countRes = await fetch(
