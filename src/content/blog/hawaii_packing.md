@@ -1,7 +1,7 @@
 ---
 title: 'Hawaii here we come...'
 description: 'First trip to Hawaii and we are so excited.  Now we just have to finish packing.'
-pubDate: 'May 12 2026'
+pubDate: May 12 2026
 ---
 
 If you know us at all you know we love to travel.  One of the places we have never been is Hawaii.  Well that is about to be knocked off the bucket list. We are going for two weeks and hitting Oahu for one week and then The Big Island for the second week. We have several things planned, like a tour of Pearl Harbor, visiting the Dole Plantation, stargazing on top of a volcano and swimming with Manta Rays, just to name a few.
