@@ -14,4 +14,4 @@ If you know Vanessa you know she loves clothes, shoes, purses...shopping in gene
 
 ## The wrap...
 
-Stay tuned as we head out on this adventure. We will post pics and commentary along the way.
+Stay tuned as we head out on this adventure. We will post pics and commentary along the way. 
