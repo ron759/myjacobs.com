@@ -139,6 +139,19 @@ const { photos, error } = await getPhotos(folder);
 				box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
 				cursor: default;
 			}
+			.lightbox img.loading {
+				min-width: 60px;
+				min-height: 60px;
+				background: transparent;
+				border: 3px solid rgba(255,255,255,0.2);
+				border-top-color: rgba(255,255,255,0.8);
+				border-radius: 50%;
+				animation: lightbox-spin 0.8s linear infinite;
+				box-shadow: none;
+			}
+			@keyframes lightbox-spin {
+				to { transform: rotate(360deg); }
+			}
 			.lightbox-close {
 				position: absolute;
 				top: 1.5em;
@@ -234,12 +247,23 @@ const { photos, error } = await getPhotos(folder);
 			const lbClose   = document.getElementById('lightbox-close')!;
 
 			function openLightbox(src: string, alt: string, caption: string) {
-				lbImg.src = src;
-				lbImg.alt = alt;
+				// Clear the old image immediately so it doesn't hang around
+				// on screen while the new one downloads.
+				lbImg.src = '';
+				lbImg.classList.add('loading');
 				lbCaption.textContent = caption;
 				lightbox.classList.add('open');
 				document.body.style.overflow = 'hidden';
 				lbClose.focus();
+
+				// Preload, then swap in only once the new image is ready.
+				const loader = new Image();
+				loader.onload = () => {
+					lbImg.src = src;
+					lbImg.alt = alt;
+					lbImg.classList.remove('loading');
+				};
+				loader.src = src;
 			}
 
 			function closeLightbox() {
