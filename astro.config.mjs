@@ -7,7 +7,9 @@ import vercel from '@astrojs/vercel';
 export default defineConfig({
 	site: 'https://myjacobs.com',
 	output: 'server',
-	adapter: vercel(),
+	adapter: vercel({
+		webAnalytics: { enabled: true }
+	}),
 	integrations: [mdx(), sitemap()],
 	fonts: [
 		{
