@@ -27,31 +27,41 @@ const posts = (await getCollection('blog'))
 				padding-top: 0;
 			}
 
-			/* Hero — full bleed outside the 720px main column */
-			.hero {
+			/* Hero photo — contained, not full-bleed */
+			.hero-photo {
+				max-width: 720px;
+				margin: 0 auto 2em;
+				line-height: 0;
+			}
+			.hero-photo img {
+				width: 100%;
+				display: block;
+				border-radius: 12px;
+				aspect-ratio: 3 / 2;
+				object-fit: cover;
+				object-position: center center;
+			}
+
+			/* Hero info band — full bleed, flows right under the photo */
+			.hero-info {
 				background: #1a2744;
 				color: white;
 				text-align: center;
-				padding: 4em 1em 3.5em;
+				padding: 2.5em 1em 3em;
 				width: 100vw;
 				position: relative;
 				left: 50%;
 				transform: translateX(-50%);
 				margin-bottom: 3em;
 			}
-			.hero h1 {
-				font-size: 3.052em;
-				margin-bottom: 0.15em;
-				color: white;
-			}
-			.hero .tagline {
+			.hero-info .tagline {
 				font-size: 1.15em;
 				color: #a8b8d8;
 				font-style: italic;
-				margin: 0 0 1.75em;
+				margin: 0 0 1.5em;
 				letter-spacing: 0.02em;
 			}
-			.hero .intro {
+			.hero-info .intro {
 				max-width: 560px;
 				margin: 0 auto;
 				color: #c8d4e8;
@@ -207,9 +217,6 @@ const posts = (await getCollection('blog'))
 			}
 
 			@media (max-width: 720px) {
-				.hero h1 {
-					font-size: 2.2em;
-				}
 				.content-grid {
 					grid-template-columns: 1fr;
 				}
@@ -226,9 +233,13 @@ const posts = (await getCollection('blog'))
 		<Header />
 		<main>
 
-			<!-- Hero / Bio -->
-			<section class="hero">
-				<h1>The Jacobs Family</h1>
+			<!-- Hero photo -->
+			<div class="hero-photo">
+				<img src="/family-mural.jpg" alt="The Jacobs Family mural" />
+			</div>
+
+			<!-- Hero info band -->
+			<div class="hero-info">
 				<p class="tagline">Love God. Love Family. Love People.</p>
 				<p class="intro">
 					Hey, we're Ron and Vanessa — married, based in Middle Tennessee, and navigating life
@@ -255,7 +266,7 @@ const posts = (await getCollection('blog'))
 						<span class="label">Dogs</span>
 					</div>
 				</div>
-			</section>
+			</div>
 
 			<!-- Two column: posts + gallery CTA -->
 			<div class="content-grid">
